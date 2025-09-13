@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>StudySage Dashboard</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  .flashcard { perspective:1000px; }
+  .flashcard-inner { transition: transform 0.6s; transform-style: preserve-3d; }
+  .flashcard:hover .flashcard-inner { transform: rotateY(180deg); }
+  .flashcard-front,.flashcard-back {
+    backface-visibility:hidden; position:absolute; inset:0; padding:1rem; border-radius:1rem;
+    display:flex; justify-content:center; align-items:center; font-weight:bold; text-align:center;
+  }
+  .flashcard-front { background:#6366F1; color:white; }
+  .flashcard-back { transform: rotateY(180deg); background:#EDE9FE; color:#4F46E5; flex-direction:column; gap:0.5rem; }
+</style>
+</head>
+<body class="bg-gradient-to-br from-indigo-50 via-white to-purple-50 text-gray-900 font-sans">
+
+<header class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md sticky top-0 z-40">
+  <div class="max-w-6xl mx-auto flex justify-between items-center py-4 px-6">
+    <h1 class="text-3xl font-extrabold tracking-tight">StudySage Dashboard</h1>
+    <nav class="space-x-4 text-lg">
+      <button class="tab-btn px-4 py-2 rounded-lg hover:bg-indigo-500 hover:text-white transition" data-tab="upload">Upload</button>
+      <button class="tab-btn px-4 py-2 rounded-lg hover:bg-indigo-500 hover:text-white transition" data-tab="quiz">Quiz</button>
+      <button class="tab-btn px-4 py-2 rounded-lg hover:bg-indigo-500 hover:text-white transition" data-tab="recommendations">AI Recommendations</button>
+      <button class="tab-btn px-4 py-2 rounded-lg hover:bg-indigo-500 hover:text-white transition" data-tab="analytics">Analytics</button>
+    </nav>
+  </div>
+</header>
+
+<main class="max-w-6xl mx-auto p-8 space-y-12">
+
+  <section id="upload" class="tab-content bg-white/90 p-10 rounded-3xl shadow-2xl hover:shadow-indigo-300 transition duration-300">
+    <h2 class="text-3xl font-bold text-indigo-700 mb-6">📂 Upload Your Notes</h2>
+    <div id="drop-area" class="border-2 border-dashed border-indigo-300 rounded-2xl p-12 text-center cursor-pointer hover:bg-indigo-50 transition hover:scale-105">
+      <p class="text-lg mb-3">Drag & Drop or <span class="text-indigo-600 font-semibold">click to upload</span></p>
+      <input id="fileInput" type="file" class="hidden" />
+      <p class="text-sm text-gray-500">Supports PDF, DOCX, TXT</p>
+    </div>
+    <div id="results" class="hidden mt-10 space-y-6">
+      <div class="bg-gradient-to-r from-indigo-100 to-purple-100 p-6 rounded-2xl shadow-lg hover:shadow-indigo-400 transition" id="summary"></div>
+    </div>
+  </section>
+
+  <section id="quiz" class="tab-content bg-white/90 p-10 rounded-3xl shadow-2xl hidden">
+    <h2 class="text-3xl font-bold text-indigo-700 mb-6">📝 Quiz</h2>
+    <div id="mcqs" class="grid md:grid-cols-1 gap-6"></div>
+    <button id="submitQuiz" class="mt-6 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-lg hover:scale-105 transition">Submit Quiz</button>
+    <div id="quizScore" class="mt-4 text-xl font-bold text-indigo-800"></div>
+  </section>
+
+  <section id="recommendations" class="tab-content bg-white/90 p-10 rounded-3xl shadow-2xl hidden">
+    <h2 class="text-3xl font-bold text-indigo-700 mb-6">💡 AI Recommendations</h2>
+    <pre id="aiRecommendations" class="whitespace-pre-wrap text-gray-700 bg-gradient-to-r from-indigo-50 to-purple-50 p-6 rounded-2xl shadow-inner hover:shadow-indigo-300 transition"></pre>
+  </section>
+
+  <section id="analytics" class="tab-content bg-white/90 p-10 rounded-3xl shadow-2xl hidden">
+    <h2 class="text-3xl font-bold text-indigo-700 mb-6">📊 Analytics</h2>
+    <canvas id="analyticsChart" class="w-full h-64 shadow-lg rounded-xl hover:shadow-indigo-500 transition"></canvas>
+  </section>
+
+</main>
+
+<footer class="mt-16 text-center py-6 bg-gradient-to-r from-indigo-600 to-purple-600 text-white">
+  © 2025 StudySage — AI-Powered Study Buddy
+</footer>
+
+<script>
+  // Tabs
+  document.querySelectorAll(".tab-btn").forEach(btn=>{
+    btn.addEventListener("click",()=>{
+      document.querySelectorAll(".tab-content").forEach(c=>c.classList.add("hidden"));
+      document.getElementById(btn.dataset.tab).classList.remove("hidden");
+      document.querySelectorAll(".tab-btn").forEach(b=>b.classList.remove("bg-indigo-600","text-white"));
+      btn.classList.add("bg-indigo-600","text-white");
+      if(btn.dataset.tab==="quiz") loadQuiz();
+      if(btn.dataset.tab==="recommendations") loadRecommendations();
+    });
+  });
+
+  // Upload
+  const fileInput=document.getElementById("fileInput");
+  const dropArea=document.getElementById("drop-area");
+  dropArea.addEventListener("click",()=>fileInput.click());
+  fileInput.addEventListener("change", async () => {
+    const file=fileInput.files[0];
+    if(!file) return;
+    const formData=new FormData();
+    formData.append("file",file);
+    const res=await fetch("http://127.0.0.1:5000/process",{method:"POST",body:formData});
+    const data=await res.json();
+    document.getElementById("summary").textContent=data.summary;
+    window.savedMCQs=data.mcqs;
+    document.getElementById("aiRecommendations").textContent=data.recommendations;
+    document.getElementById("results").classList.remove("hidden");
+  });
+
+  // Quiz
+  function loadQuiz(){
+    const mcqsDiv=document.getElementById("mcqs");
+    mcqsDiv.innerHTML="";
+    if(!window.savedMCQs || window.savedMCQs.length===0){
+      mcqsDiv.innerHTML="<p class='text-gray-600'>Upload notes first to generate a quiz.</p>";
+      return;
+    }
+    window.savedMCQs.forEach((q,i)=>{
+      const card=document.createElement("div");
+      card.className="flashcard relative h-32 shadow-lg rounded-2xl hover:shadow-indigo-400 transition";
+      card.innerHTML=`<div class="flashcard-inner relative w-full h-full">
+        <div class="flashcard-front">${q.question}</div>
+        <div class="flashcard-back flex flex-col justify-center items-center">
+          ${q.options.map(o=>`<label class="block"><input type="radio" name="q${i}" value="${o}" class="mr-2"/>${o}</label>`).join("")}
+        </div>
+      </div>`;
+      card.dataset.answer=q.answer;
+      mcqsDiv.appendChild(card);
+    });
+    document.getElementById("quizScore").textContent="";
+  }
+
+  document.getElementById("submitQuiz").addEventListener("click", async ()=>{
+    let score=0;
+    document.querySelectorAll("#mcqs .flashcard").forEach(card=>{
+      const correct=card.dataset.answer;
+      const selected=card.querySelector("input[type='radio']:checked");
+      if(selected && selected.value===correct) score++;
+    });
+    document.getElementById("quizScore").textContent=`Your Score: ${score}/${window.savedMCQs.length}`;
+    await fetch("http://127.0.0.1:5000/submit_quiz",{method:"POST",headers:{'Content-Type':'application/json'},body:JSON.stringify({score})});
+    loadAnalytics();
+  });
+
+  function loadRecommendations(){
+    if(!window.savedMCQs){
+      document.getElementById("aiRecommendations").textContent="Upload notes to get AI recommendations.";
+    }
+  }
+
+  async function loadAnalytics(){
+    const res=await fetch("http://127.0.0.1:5000/analytics");
+    const data=await res.json();
+    new Chart(document.getElementById("analyticsChart"),{
+      type:"bar",
+      data:{labels:["Uploads","Quizzes","Avg Score"],datasets:[{data:[data.uploads,data.quizzes,data.avg_score],backgroundColor:["#6366F1","#8B5CF6","#F59E0B"]}]},
+      options:{plugins:{legend:{display:false}}}
+    });
+  }
+  loadAnalytics();
+</script>
+<a href="index.html" class="hover:text-yellow-300 transition">← Back</a>
+</body>
+</html>
